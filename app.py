@@ -1,3 +1,4 @@
+
 # app.py
 import streamlit as st
 import pandas as pd
@@ -10,17 +11,31 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ---------- DATA FETCHERS ----------
+@st.cache_data
+def fetch_f1_data():
+    # NASA GISTEMP: Globális felszíni hőmérséklet-anomália
+    url = "https://data.giss.nasa.gov/gistemp/tabledata_v4/GLB.Ts+dSST.csv"
+    df = pd.read_csv(url, skiprows=1)
+    df = df.rename(columns={"Year": "year"})
+    # Csak a hónapok oszlopai
+    months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    df["annual"] = df[months].mean(axis=1)
+    # Normalizálás 0-1 közé
+    minv, maxv = df["annual"].min(), df["annual"].max()
+    df["scaled"] = (df["annual"] - minv) / (maxv - minv)
+    return df
+
 # ---------- HELPERS ----------
 def color_from_val(v):
-    # v: 0..1
     if v >= 0.80:
-        return "#d62728"  # red
+        return "#d62728"  # piros
     elif v >= 0.70:
-        return "#ff7f0e"  # orange
+        return "#ff7f0e"  # narancs
     elif v >= 0.60:
-        return "#ffbb33"  # yellow
+        return "#ffbb33"  # sárga
     else:
-        return "#2ca02c"  # green
+        return "#2ca02c"  # zöld
 
 def make_sparkline(y):
     fig = px.line(y=y)
@@ -28,9 +43,12 @@ def make_sparkline(y):
     fig.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=100, xaxis=dict(visible=False), yaxis=dict(visible=False))
     return fig
 
-# ---------- INITIAL DATA (sample / placeholder; you can replace with real CSV loads later) ----------
+# ---------- INITIAL DATA ----------
+f1_df = fetch_f1_data()
+f1_latest = f1_df.iloc[-1]["scaled"]
+
 initial_values = {
-    "F1 – Global Temperature": 0.85,
+    "F1 – Global Temperature": f1_latest,
     "F2 – Food Security": 0.75,
     "F4 – Water": 0.65,
     "F6 – Pandemics": 0.90,
@@ -38,41 +56,43 @@ initial_values = {
     "P10 – Permafrost": 0.80
 }
 
-# session state persistence (keeps values after button clicks)
+# Session state tárolás
 if "values" not in st.session_state:
     st.session_state["values"] = initial_values.copy()
-    # sample trend histories (24 time-points)
+    # Trendek: F1 valós NASA-adat, többi dummy
     st.session_state["trends"] = {
-        k: (np.linspace(max(0,v-0.05), min(1,v+0.05), 24) + np.random.normal(0, 0.01, 24)).tolist()
-        for k,v in initial_values.items()
+        "F1 – Global Temperature": f1_df["scaled"].tolist()[-24:],
+        "F2 – Food Security": (np.linspace(0.7,0.8,24) + np.random.normal(0,0.01,24)).tolist(),
+        "F4 – Water": (np.linspace(0.6,0.7,24) + np.random.normal(0,0.01,24)).tolist(),
+        "F6 – Pandemics": (np.linspace(0.85,0.9,24) + np.random.normal(0,0.01,24)).tolist(),
+        "P4 – Phytoplankton": (np.linspace(0.65,0.7,24) + np.random.normal(0,0.01,24)).tolist(),
+        "P10 – Permafrost": (np.linspace(0.75,0.8,24) + np.random.normal(0,0.01,24)).tolist()
     }
 
 # ---------- SIDEBAR ----------
 st.sidebar.header("Bárka AV (Alap Verzió) — vezérlők")
-st.sidebar.markdown("Ez egy demonstrációs AV dashboard. Az értékek kezdetben minták; később beköthetők valós adatokhoz.")
+st.sidebar.markdown("Ez egy demonstrációs AV dashboard. Az F1 valós NASA-adat, a többi tesztadat (dummy).")
+
 if st.sidebar.button("Reset values"):
     st.session_state["values"] = initial_values.copy()
     st.sidebar.success("Visszaállítva.")
 
 st.sidebar.markdown("**Simuláció**")
 if st.sidebar.button("Simulate F1 tipping (trigger domino)"):
-    # Ha F1 átbillen, rángatja a többieket
     for k in st.session_state["values"].keys():
         if k != "F1 – Global Temperature":
             newv = min(1.0, st.session_state["values"][k] + 0.20)
             st.session_state["values"][k] = newv
-            # update trend with spike
-            st.session_state["trends"][k] = st.session_state["trends"][k][-8:] + (np.linspace(newv-0.02, newv, 8) + np.random.normal(0,0.01,8)).tolist()
+            st.session_state["trends"][k] = st.session_state["trends"][k][-8:] + (np.linspace(newv-0.02,newv,8) + np.random.normal(0,0.01,8)).tolist()
     st.sidebar.success("F1 tipping simulated: other components increased (domino).")
 
 st.sidebar.markdown("---")
-st.sidebar.info("Ha szeretnéd, később beállítjuk a valós adatok betöltését (CSV/URL/API).")
+st.sidebar.info("Következő lépés: további valós adatok bekötése (FAO, GRACE, WHO).")
 
 # ---------- MAIN LAYOUT ----------
 st.title("🌍 Bárka AV Dashboard — Alap Verzió (Prototype)")
-st.subheader("6 kritikus komponens (F1 → trigger) — demo KER visualizáció")
+st.subheader("6 kritikus komponens (F1 → trigger) — F1 valós NASA GISTEMP adatból")
 
-# Cards layout: 2 rows x 3 columns
 components = list(st.session_state["values"].keys())
 emojis = {
     "F1 – Global Temperature": "🌡️",
@@ -83,7 +103,6 @@ emojis = {
     "P10 – Permafrost": "❄️"
 }
 
-# draw top row
 for row_start in [0, 3]:
     cols = st.columns(3)
     for i, col in enumerate(cols):
@@ -94,42 +113,34 @@ for row_start in [0, 3]:
         with col:
             st.markdown(f"### {emojis.get(comp,'')}  {comp}")
             percent = int(val * 100)
-            # colored progress-like bar using metric + colored markdown stripe
-            st.metric(label="Risk level", value=f"{percent}%", delta=None)
-            # small colored bar (hacky, but works visually)
+            st.metric(label="Risk level", value=f"{percent}%")
             st.markdown(f"<div style='height:10px; background:{color}; border-radius:6px;'></div>", unsafe_allow_html=True)
-            # sparkline
             spark = st.session_state["trends"][comp]
             fig = make_sparkline(spark)
             st.plotly_chart(fig, use_container_width=True)
-            st.write("")  # spacing
+            st.write("")
 
-# Domino note / quick controls
+# Domino hatás magyarázat
 st.markdown("---")
 left, right = st.columns([3,2])
 with left:
-    st.markdown("**Domino effect demo:** F1 (Global Temperature) működésbe hozhatja a láncreakciót. A bal felső gombbal kipróbálhatod a hatást.")
+    st.markdown("**Domino effect demo:** F1 (Global Temperature) átbillenése láncreakciót indíthat. A bal felső gombbal kipróbálhatod.")
 with right:
     if st.button("Increase F1 (manual +0.05)"):
         st.session_state["values"]["F1 – Global Temperature"] = min(1.0, st.session_state["values"]["F1 – Global Temperature"] + 0.05)
         st.session_state["trends"]["F1 – Global Temperature"] = st.session_state["trends"]["F1 – Global Temperature"][-8:] + (np.linspace(st.session_state["values"]["F1 – Global Temperature"]-0.02, st.session_state["values"]["F1 – Global Temperature"], 8) + np.random.normal(0,0.01,8)).tolist()
         st.experimental_rerun()
 
-# small legend and explanation
+# Jelmagyarázat
 st.markdown("""
 **Legend:**  
 • Zöld = alacsony kockázat (≤0.6) • Sárga = figyelmeztetés (0.6–0.7) • Narancs = magas (0.7–0.8) • Piros = kritikus (≥0.8)  
 """)
 
-# ---------- FOOTER: instructions for adding real data ----------
+# ---------- FOOTER ----------
 st.markdown("---")
-st.header("Adatforrások és következő lépések")
+st.header("Adatforrás")
 st.markdown("""
-Ezek a demo értékek. Később CSV/API csatlakozásokat adhatunk hozzá:
-- NASA / Copernicus CSV-ek (globális hő, chlorophyll, NDVI)  
-- FAO / WFP (crop yield, food security)  
-- GRACE (víz készlet anomáliák)  
-- ProMED / WHO (járványok)
-
-Ha szeretnéd, elkészítem a `fetch_real_data()` függvényt és a pontos URL-eket / letöltő scriptet, amit csak bemásolsz ide.
+**F1 – Global Temperature:** NASA GISTEMP v4 (https://data.giss.nasa.gov/gistemp/)  
+Minden más komponens jelenleg tesztadat, hamarosan valós forrásra cseréljük.  
 """)
