@@ -141,6 +141,22 @@ for row_start in [0, 3]:
             st.plotly_chart(fig, use_container_width=True)
             st.write("")
 
+# ---------- MAIN PLOT ----------
+st.markdown("### 🌡️ F1 – Global Surface Temperature Anomaly")
+
+fig_main = px.line(
+    f1_df,
+    x="year",
+    y="annual",
+    title="Global Surface Temperature Anomaly (°C)",
+    labels={"year": "Year", "annual": "Temperature anomaly (°C vs 1951–1980 baseline)"},
+    markers=True
+)
+fig_main.update_traces(line=dict(color="firebrick", width=2))
+fig_main.update_layout(height=500)
+
+st.plotly_chart(fig_main, use_container_width=True)
+
 # Domino hatás magyarázat
 st.markdown("---")
 left, right = st.columns([3,2])
