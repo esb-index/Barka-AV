@@ -43,14 +43,18 @@ def fetch_f4_data():
     url = "https://nasagrace.unl.edu/GRACE_TWS_Global.csv"
     df = pd.read_csv(url, skiprows=12)  # az első sorok metaadatok
     df = df.rename(columns={"Date": "date", "TWSA(Gt)": "twsa"})
-    
+
     # Dátum konvertálása
     df["date"] = pd.to_datetime(df["date"])
-    
+
+    # Biztonság: minden adat float
+    df["twsa"] = pd.to_numeric(df["twsa"], errors="coerce")
+    df = df.dropna(subset=["twsa"])
+
     # Normalizálás 0–1 közé
     minv, maxv = df["twsa"].min(), df["twsa"].max()
     df["scaled"] = (df["twsa"] - minv) / (maxv - minv)
-    
+
     return df
 
 # ---------- HELPERS ----------
@@ -76,17 +80,16 @@ def make_sparkline(y):
     return fig
 
 # ---------- INITIAL DATA ----------
-
 f1_df = fetch_f1_data()
 f4_df = fetch_f4_data()
 
 f1_latest = float(f1_df.iloc[-1]["scaled"])
+f4_latest = float(f4_df.iloc[-1]["scaled"])
 
 initial_values = {
     "F1 – Global Temperature": f1_latest,
     "F2 – Food Security": 0.75,
-    "F4 – Water": float(f4_df.iloc[-1]["scaled"]),
-
+    "F4 – Water": f4_latest,
     "F6 – Pandemics": 0.90,
     "P4 – Phytoplankton": 0.70,
     "P10 – Permafrost": 0.80
@@ -95,12 +98,11 @@ initial_values = {
 # Session state tárolás
 if "values" not in st.session_state:
     st.session_state["values"] = initial_values.copy()
-    # Trendek: F1 valós NASA-adat, többi dummy
+    # Trendek: F1 és F4 valós adatok, többi dummy
     st.session_state["trends"] = {
         "F1 – Global Temperature": [float(x) for x in f1_df["scaled"].tolist()[-24:]],
         "F2 – Food Security": (np.linspace(0.7,0.8,24) + np.random.normal(0,0.01,24)).tolist(),
         "F4 – Water": [float(x) for x in f4_df["scaled"].tolist()[-24:]],
-
         "F6 – Pandemics": (np.linspace(0.85,0.9,24) + np.random.normal(0,0.01,24)).tolist(),
         "P4 – Phytoplankton": (np.linspace(0.65,0.7,24) + np.random.normal(0,0.01,24)).tolist(),
         "P10 – Permafrost": (np.linspace(0.75,0.8,24) + np.random.normal(0,0.01,24)).tolist()
@@ -108,7 +110,7 @@ if "values" not in st.session_state:
 
 # ---------- SIDEBAR ----------
 st.sidebar.header("Bárka AV (Alap Verzió) — vezérlők")
-st.sidebar.markdown("Ez egy demonstrációs AV dashboard. Az F1 valós NASA-adat, a többi tesztadat (dummy).")
+st.sidebar.markdown("Ez egy demonstrációs AV dashboard. Az F1 és F4 valós NASA-adat, a többi tesztadat (dummy).")
 
 if st.sidebar.button("Reset values"):
     st.session_state["values"] = initial_values.copy()
@@ -126,11 +128,11 @@ if st.sidebar.button("Simulate F1 tipping (trigger domino)"):
     st.sidebar.success("F1 tipping simulated: other components increased (domino).")
 
 st.sidebar.markdown("---")
-st.sidebar.info("Következő lépés: további valós adatok bekötése (FAO, GRACE, WHO).")
+st.sidebar.info("Következő lépés: további valós adatok bekötése (FAO, WHO, Copernicus, NOAA).")
 
 # ---------- MAIN LAYOUT ----------
 st.title("🌍 Bárka AV Dashboard — Alap Verzió (Prototype)")
-st.subheader("6 kritikus komponens (F1 → trigger) — F1 valós NASA GISTEMP adatból")
+st.subheader("6 kritikus komponens — F1 és F4 valós NASA-adatokkal")
 
 components = list(st.session_state["values"].keys())
 emojis = {
@@ -162,20 +164,23 @@ for row_start in [0, 3]:
             st.plotly_chart(fig, use_container_width=True)
             st.write("")
 
-# ---------- MAIN PLOT ----------
+# ---------- MAIN PLOTS ----------
 st.markdown("### 🌡️ F1 – Global Surface Temperature Anomaly")
 
 fig_main = px.line(
     f1_df,
     x="year",
     y="annual",
-    title="Global Surface Temperature Anomaly (°C, relative to 1951-1980 baseline)",
+    title="Global Surface Temperature Anomaly (°C, relative to 1951–1980 baseline)",
     labels={"year": "Year", "annual": "Temperature anomaly (°C)"},
     markers=True
 )
+fig_main.update_traces(line=dict(color="firebrick", width=2))
+fig_main.update_layout(height=500)
+
+st.plotly_chart(fig_main, use_container_width=True)
 st.caption("Source: NASA GISTEMP v4. Baseline: 1951–1980 average.")
 
-# ---------- MAIN PLOT FOR F4 ----------
 st.markdown("### 💧 F4 – Terrestrial Water Storage Anomaly")
 
 fig_water = px.line(
@@ -192,42 +197,11 @@ fig_water.update_layout(height=500)
 st.plotly_chart(fig_water, use_container_width=True)
 st.caption("Source: NASA GRACE-FO Tellus, Global average. Baseline: 2004–2009 mean.")
 
-fig_main.update_traces(line=dict(color="firebrick", width=2))
-fig_main.update_layout(height=500)
-
-st.plotly_chart(fig_main, use_container_width=True)
-
-# Domino hatás magyarázat
-st.markdown("---")
-left, right = st.columns([3,2])
-with left:
-    st.markdown("**Domino effect demo:** F1 (Global Temperature) átbillenése láncreakciót indíthat. A bal felső gombbal kipróbálhatod.")
-with right:
-    if st.button("Increase F1 (manual +0.05)"):
-        st.session_state["values"]["F1 – Global Temperature"] = min(
-            1.0,
-            float(st.session_state["values"]["F1 – Global Temperature"]) + 0.05
-        )
-        st.session_state["trends"]["F1 – Global Temperature"] = st.session_state["trends"]["F1 – Global Temperature"][-8:] + (
-            np.linspace(
-                st.session_state["values"]["F1 – Global Temperature"]-0.02,
-                st.session_state["values"]["F1 – Global Temperature"],
-                8
-            ) + np.random.normal(0,0.01,8)
-        ).tolist()
-        st.experimental_rerun()
-
-# Jelmagyarázat
-st.markdown("""
-**Legend:**  
-• Zöld = alacsony kockázat (≤0.6) • Sárga = figyelmeztetés (0.6–0.7) • Narancs = magas (0.7–0.8) • Piros = kritikus (≥0.8)  
-""")
-
 # ---------- FOOTER ----------
 st.markdown("---")
-st.header("Adatforrás")
+st.header("Adatforrások")
 st.markdown("""
 **F1 – Global Temperature:** NASA GISTEMP v4 (https://data.giss.nasa.gov/gistemp/)  
+**F4 – Water:** NASA GRACE-FO Tellus (https://nasagrace.unl.edu/)  
 Minden más komponens jelenleg tesztadat, hamarosan valós forrásra cseréljük.  
 """)
-
