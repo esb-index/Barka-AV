@@ -37,6 +37,22 @@ def fetch_f1_data():
 
     return df
 
+@st.cache_data
+def fetch_f4_data():
+    # NASA GRACE: Terrestrial Water Storage Anomaly (globális átlag)
+    url = "https://nasagrace.unl.edu/GRACE_TWS_Global.csv"
+    df = pd.read_csv(url, skiprows=12)  # az első sorok metaadatok
+    df = df.rename(columns={"Date": "date", "TWSA(Gt)": "twsa"})
+    
+    # Dátum konvertálása
+    df["date"] = pd.to_datetime(df["date"])
+    
+    # Normalizálás 0–1 közé
+    minv, maxv = df["twsa"].min(), df["twsa"].max()
+    df["scaled"] = (df["twsa"] - minv) / (maxv - minv)
+    
+    return df
+
 # ---------- HELPERS ----------
 def color_from_val(v):
     if v >= 0.80:
@@ -60,13 +76,17 @@ def make_sparkline(y):
     return fig
 
 # ---------- INITIAL DATA ----------
+
 f1_df = fetch_f1_data()
+f4_df = fetch_f4_data()
+
 f1_latest = float(f1_df.iloc[-1]["scaled"])
 
 initial_values = {
     "F1 – Global Temperature": f1_latest,
     "F2 – Food Security": 0.75,
-    "F4 – Water": 0.65,
+    "F4 – Water": float(f4_df.iloc[-1]["scaled"]),
+
     "F6 – Pandemics": 0.90,
     "P4 – Phytoplankton": 0.70,
     "P10 – Permafrost": 0.80
@@ -79,7 +99,8 @@ if "values" not in st.session_state:
     st.session_state["trends"] = {
         "F1 – Global Temperature": [float(x) for x in f1_df["scaled"].tolist()[-24:]],
         "F2 – Food Security": (np.linspace(0.7,0.8,24) + np.random.normal(0,0.01,24)).tolist(),
-        "F4 – Water": (np.linspace(0.6,0.7,24) + np.random.normal(0,0.01,24)).tolist(),
+        "F4 – Water": [float(x) for x in f4_df["scaled"].tolist()[-24:]],
+
         "F6 – Pandemics": (np.linspace(0.85,0.9,24) + np.random.normal(0,0.01,24)).tolist(),
         "P4 – Phytoplankton": (np.linspace(0.65,0.7,24) + np.random.normal(0,0.01,24)).tolist(),
         "P10 – Permafrost": (np.linspace(0.75,0.8,24) + np.random.normal(0,0.01,24)).tolist()
@@ -154,6 +175,22 @@ fig_main = px.line(
 )
 st.caption("Source: NASA GISTEMP v4. Baseline: 1951–1980 average.")
 
+# ---------- MAIN PLOT FOR F4 ----------
+st.markdown("### 💧 F4 – Terrestrial Water Storage Anomaly")
+
+fig_water = px.line(
+    f4_df,
+    x="date",
+    y="twsa",
+    title="Terrestrial Water Storage Anomaly (Gigatonnes, relative to 2004–2009 baseline)",
+    labels={"date": "Year", "twsa": "Water storage anomaly (Gt)"},
+    markers=True
+)
+fig_water.update_traces(line=dict(color="royalblue", width=2))
+fig_water.update_layout(height=500)
+
+st.plotly_chart(fig_water, use_container_width=True)
+st.caption("Source: NASA GRACE-FO Tellus, Global average. Baseline: 2004–2009 mean.")
 
 fig_main.update_traces(line=dict(color="firebrick", width=2))
 fig_main.update_layout(height=500)
