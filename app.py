@@ -39,23 +39,27 @@ def fetch_f1_data():
 
 @st.cache_data
 def fetch_f4_data():
-    # NASA GRACE: Terrestrial Water Storage Anomaly (globális átlag)
-    url = "https://nasagrace.unl.edu/GRACE_TWS_Global.csv"
-    df = pd.read_csv(url, skiprows=12)  # az első sorok metaadatok
-    df = df.rename(columns={"Date": "date", "TWSA(Gt)": "twsa"})
-
-    # Dátum konvertálása
-    df["date"] = pd.to_datetime(df["date"])
-
-    # Biztonság: minden adat float
-    df["twsa"] = pd.to_numeric(df["twsa"], errors="coerce")
-    df = df.dropna(subset=["twsa"])
+    try:
+        # NASA GRACE (ha elérhető)
+        url = "https://nasagrace.unl.edu/GRACE_TWS_Global.csv"
+        df = pd.read_csv(url, skiprows=12)
+        df = df.rename(columns={"Date": "date", "TWSA(Gt)": "twsa"})
+        df["date"] = pd.to_datetime(df["date"])
+        df["twsa"] = pd.to_numeric(df["twsa"], errors="coerce")
+        df = df.dropna(subset=["twsa"])
+    except Exception as e:
+        # Ha nem elérhető, dummy adatokat generálunk
+        st.warning("⚠️ NASA GRACE adat nem elérhető, dummy adatokkal fut a F4 komponens.")
+        dates = pd.date_range("2002-01-01", periods=240, freq="M")
+        values = np.linspace(-500, 500, 240) + np.random.normal(0, 50, 240)
+        df = pd.DataFrame({"date": dates, "twsa": values})
 
     # Normalizálás 0–1 közé
     minv, maxv = df["twsa"].min(), df["twsa"].max()
     df["scaled"] = (df["twsa"] - minv) / (maxv - minv)
 
     return df
+
 
 # ---------- HELPERS ----------
 def color_from_val(v):
