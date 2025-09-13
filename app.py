@@ -151,10 +151,10 @@ fig_main = px.line(
     title="Global Surface Temperature Anomaly (°C, relative to 1951-1980 baseline)",
     labels={"year": "Year", "annual": "Temperature anomaly (°C)"},
     markers=True
-
+)
     st.caption("Source: NASA GISTEMP v4. Baseline: 1951–1980 average.")
 
-)
+
 fig_main.update_traces(line=dict(color="firebrick", width=2))
 fig_main.update_layout(height=500)
 
