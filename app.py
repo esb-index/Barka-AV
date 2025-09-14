@@ -11,28 +11,102 @@ st.set_page_config(
 )
 
 # ---------- DATA FETCHERS ----------
+# ---------------- Robust fetchers with fallback and detailed error display ----------------
+import os, io, traceback, requests
+
 @st.cache_data
-def fetch_f1_data():
-    # NASA GISTEMP: Globális felszíni hőmérséklet-anomália
+def fetch_f1_data(local_fallback="data/F1_gistemp.csv"):
     url = "https://data.giss.nasa.gov/gistemp/tabledata_v4/GLB.Ts+dSST.csv"
-    df = pd.read_csv(url, skiprows=1)
+    label = "NASA GISTEMP (F1)"
+    try:
+        resp = requests.get(url, timeout=18)
+        resp.raise_for_status()
+        txt = resp.text
+        df = pd.read_csv(io.StringIO(txt), skiprows=1)
+    except Exception as e:
+        err = traceback.format_exc()
+        st.error(f"⚠️ Hiba az {label} letöltése közben.\nHiba: {type(e).__name__}: {e}")
+        with st.expander(f"Részletes hibaüzenet ({label})"):
+            st.code(err)
+        if local_fallback and os.path.exists(local_fallback):
+            st.info(f"Betöltés helyi fallback fájlból: {local_fallback}")
+            df = pd.read_csv(local_fallback, skiprows=1)
+        else:
+            st.error(f"Nincs elérhető helyi fallback az {label}-hez. Kérlek töltsd fel a '{local_fallback}' fájlt a repo 'data/' mappájába, vagy ellenőrizd a hálózati elérést.")
+            return None
+
+    # Feldolgozás (mint korábban)
     df = df.rename(columns={"Year": "year"})
     months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    # biztosítjuk, hogy a hónapok oszlopai numerikusak legyenek
+    for m in months:
+        if m in df.columns:
+            df[m] = pd.to_numeric(df[m], errors="coerce")
     df["annual"] = df[months].mean(axis=1)
+    df = df.dropna(subset=["annual"])
     minv, maxv = df["annual"].min(), df["annual"].max()
     df["scaled"] = (df["annual"] - minv) / (maxv - minv)
     return df
 
 @st.cache_data
-def fetch_f4_data():
-    # F4 adat a GitHub repo-ból (feltöltött CSV fájl)
-    df = pd.read_csv("data/F4_water.csv")
-    df["time"] = pd.to_datetime(df["time [yyyy-mm-dd]"])
-    df = df.rename(columns={"global [cm]": "global_cm"})
-    # Normalizálás 0-1 közé
+def fetch_f4_data(local_fallback="data/F4_water.csv"):
+    # A GFZ CSV mindig helyi fájlból is beolvasható; megpróbáljuk először a GitHub/raw elérést,
+    # de ha a Streamlit Cloud hálózata elutasítja, akkor helyi fallbackre ugrunk.
+    # Ha a te kódod már lokálisan olvas, akkor ez biztonsági plusz.
+    # (Ha a CSV-nek más a fejléc-formátuma, módosítsd a rename-lépést.)
+    possible_urls = [
+        # ha van RAW GitHub linked, ide beteheted; ha nincs, marad a local fallback.
+        # "https://raw.githubusercontent.com/<user>/barka-av/main/data/F4_water.csv"
+    ]
+    label = "GFZ GravIS F4 (TWS global)"
+    # Try any URL first (if provided)
+    for url in possible_urls:
+        try:
+            resp = requests.get(url, timeout=18)
+            resp.raise_for_status()
+            txt = resp.text
+            df = pd.read_csv(io.StringIO(txt))
+            break
+        except Exception:
+            # csak próbálkozunk, de ha nem sikerül, folytatjuk a fallback vizsgálatával
+            df = None
+
+    if df is None:
+        # vagy nem volt URL megadva, vagy az letöltés sikertelen — próbáljuk a helyit
+        try:
+            if local_fallback and os.path.exists(local_fallback):
+                df = pd.read_csv(local_fallback)
+            else:
+                raise FileNotFoundError(f"Local fallback not found: {local_fallback}")
+        except Exception as e:
+            err = traceback.format_exc()
+            st.error(f"⚠️ Hiba az {label} beolvasásakor.")
+            with st.expander(f"Részletes hibaüzenet ({label})"):
+                st.code(err)
+            st.error(f"Kérlek töltsd fel a megfelelő CSV-t a '{local_fallback}' helyre a repo 'data/' mappájába.")
+            return None
+
+    # most győződjünk meg, hogy a tipikus oszlopok megvannak
+    # például: 'time [yyyy-mm-dd]' és 'global [cm]'
+    if "time [yyyy-mm-dd]" in df.columns:
+        df["time"] = pd.to_datetime(df["time [yyyy-mm-dd]"])
+    elif "time" in df.columns:
+        df["time"] = pd.to_datetime(df["time"])
+    else:
+        st.warning("Figyelem: a GRAVIS CSV nem tartalmazza a várt 'time' oszlopot. Ellenőrizd a fejlécet.")
+    # rename global column if present in original CSV
+    if "global [cm]" in df.columns:
+        df = df.rename(columns={"global [cm]": "global_cm"})
+    elif "global_cm" not in df.columns and "global" in df.columns:
+        df = df.rename(columns={"global": "global_cm"})
+
+    # ensure numeric
+    df["global_cm"] = pd.to_numeric(df["global_cm"], errors="coerce")
+    df = df.dropna(subset=["global_cm"])
     minv, maxv = df["global_cm"].min(), df["global_cm"].max()
     df["scaled"] = (df["global_cm"] - minv) / (maxv - minv)
     return df
+# --------------------------------------------------------------------------------------------
 
 # ---------- HELPERS ----------
 def color_from_val(v):
