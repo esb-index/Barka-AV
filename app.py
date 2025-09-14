@@ -25,15 +25,13 @@ def fetch_f1_data():
 
 @st.cache_data
 def fetch_f4_data():
-    # Harvard Dataverse – GRACE Mascon Global Water Storage Anomalies
-    url = "https://dataverse.harvard.edu/api/access/datafile/6153072"
-    df = pd.read_csv(url)
-    df = df.rename(columns={"Year": "year", "Water_Storage_Anomaly_mm": "anomaly"})
-    # éves átlag
-    df = df.groupby("year", as_index=False)["anomaly"].mean()
-    # normalizálás
-    minv, maxv = df["anomaly"].min(), df["anomaly"].max()
-    df["scaled"] = (df["anomaly"] - minv) / (maxv - minv)
+    # F4 adat a GitHub repo-ból (feltöltött CSV fájl)
+    df = pd.read_csv("data/F4_water.csv")
+    df["time"] = pd.to_datetime(df["time [yyyy-mm-dd]"])
+    df = df.rename(columns={"global [cm]": "global_cm"})
+    # Normalizálás 0-1 közé
+    minv, maxv = df["global_cm"].min(), df["global_cm"].max()
+    df["scaled"] = (df["global_cm"] - minv) / (maxv - minv)
     return df
 
 # ---------- HELPERS ----------
@@ -47,10 +45,15 @@ def color_from_val(v):
     else:
         return "#2ca02c"  # zöld
 
-def make_sparkline(df, y_col, title):
-    fig = px.line(df, x="year", y=y_col, title=title)
+def make_sparkline(y):
+    fig = px.line(y=y)
     fig.update_traces(line=dict(width=2))
-    fig.update_layout(margin=dict(l=0,r=0,t=30,b=0), height=250)
+    fig.update_layout(
+        margin=dict(l=0,r=0,t=0,b=0),
+        height=100,
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False)
+    )
     return fig
 
 # ---------- INITIAL DATA ----------
@@ -62,27 +65,19 @@ f4_latest = f4_df.iloc[-1]["scaled"]
 
 initial_values = {
     "F1 – Global Temperature": f1_latest,
-    "F4 – Water Storage": f4_latest,
-    "F2 – Food Security": 0.75,
-    "F6 – Pandemics": 0.90,
-    "P4 – Phytoplankton": 0.70,
-    "P10 – Permafrost": 0.80
+    "F4 – Water Storage": f4_latest
 }
 
 if "values" not in st.session_state:
     st.session_state["values"] = initial_values.copy()
     st.session_state["trends"] = {
-        "F1 – Global Temperature": f1_df,
-        "F4 – Water Storage": f4_df,
-        "F2 – Food Security": pd.DataFrame({"year": list(range(2000,2024)), "scaled": np.linspace(0.7,0.8,24)}),
-        "F6 – Pandemics": pd.DataFrame({"year": list(range(2000,2024)), "scaled": np.linspace(0.85,0.9,24)}),
-        "P4 – Phytoplankton": pd.DataFrame({"year": list(range(2000,2024)), "scaled": np.linspace(0.65,0.7,24)}),
-        "P10 – Permafrost": pd.DataFrame({"year": list(range(2000,2024)), "scaled": np.linspace(0.75,0.8,24)})
+        "F1 – Global Temperature": f1_df["scaled"].tolist()[-24:],
+        "F4 – Water Storage": f4_df["scaled"].tolist()[-24:]
     }
 
 # ---------- SIDEBAR ----------
 st.sidebar.header("Bárka AV (Alap Verzió) — vezérlők")
-st.sidebar.markdown("F1 és F4 valós adatforrásból, a többi egyelőre tesztadat.")
+st.sidebar.markdown("Ez egy demonstrációs AV dashboard. Az F1 és F4 valós adatokból fut.")
 
 if st.sidebar.button("Reset values"):
     st.session_state["values"] = initial_values.copy()
@@ -90,37 +85,52 @@ if st.sidebar.button("Reset values"):
 
 # ---------- MAIN LAYOUT ----------
 st.title("🌍 Bárka AV Dashboard — Alap Verzió (Prototype)")
-st.subheader("Valós idősor: F1 (NASA GISTEMP), F4 (GRACE/Harvard Dataverse)")
+st.subheader("F1 (NASA GISTEMP) + F4 (GRACE Water Storage, GFZ RL06)")
 
 components = list(st.session_state["values"].keys())
 emojis = {
     "F1 – Global Temperature": "🌡️",
-    "F2 – Food Security": "🌾",
-    "F4 – Water Storage": "💧",
-    "F6 – Pandemics": "🦠",
-    "P4 – Phytoplankton": "🌱",
-    "P10 – Permafrost": "❄️"
+    "F4 – Water Storage": "💧"
 }
 
-for row_start in [0, 3]:
-    cols = st.columns(3)
-    for i, col in enumerate(cols):
-        idx = row_start + i
-        comp = components[idx]
-        val = st.session_state["values"][comp]
-        color = color_from_val(val)
-        with col:
-            st.markdown(f"### {emojis.get(comp,'')}  {comp}")
-            percent = int(val * 100)
-            st.metric(label="Risk level", value=f"{percent}%")
-            st.markdown(f"<div style='height:10px; background:{color}; border-radius:6px;'></div>", unsafe_allow_html=True)
-            fig = make_sparkline(st.session_state["trends"][comp], "scaled", f"{comp} (scaled 0–1)")
-            st.plotly_chart(fig, use_container_width=True)
+cols = st.columns(2)
+for i, col in enumerate(cols):
+    comp = components[i]
+    val = st.session_state["values"][comp]
+    color = color_from_val(val)
+    with col:
+        st.markdown(f"### {emojis.get(comp,'')}  {comp}")
+        percent = int(val * 100)
+        st.metric(label="Risk level", value=f"{percent}%")
+        st.markdown(
+            f"<div style='height:10px; background:{color}; border-radius:6px;'></div>",
+            unsafe_allow_html=True
+        )
+        spark = st.session_state["trends"][comp]
+        fig = make_sparkline(spark)
+        st.plotly_chart(fig, use_container_width=True)
+        st.write("")
+
+# ---------- DETAILED CHARTS ----------
+st.markdown("---")
+st.header("📊 Részletes grafikonok")
+
+# F1 részletes
+st.subheader("F1 – Global Temperature Anomaly (NASA GISTEMP)")
+fig1 = px.line(f1_df, x="year", y="annual", title="Global Surface Temperature Anomaly (°C)")
+st.plotly_chart(fig1, use_container_width=True)
+st.caption("Source: NASA GISTEMP v4. Baseline: 1951–1980 average.")
+
+# F4 részletes
+st.subheader("F4 – Terrestrial Water Storage Anomaly (GFZ RL06, global)")
+fig2 = px.line(f4_df, x="time", y="global_cm", title="Global Terrestrial Water Storage Anomaly (cm)")
+st.plotly_chart(fig2, use_container_width=True)
+st.caption("Source: GFZ GravIS RL06 (GRACE/GRACE-FO). Global water storage anomaly relative to long-term mean.")
 
 # ---------- FOOTER ----------
 st.markdown("---")
-st.header("Adatforrás")
+st.header("Adatforrások")
 st.markdown("""
 **F1 – Global Temperature:** NASA GISTEMP v4 (https://data.giss.nasa.gov/gistemp/)  
-**F4 – Water Storage:** GRACE Mascon Global Water Storage Anomalies, Harvard Dataverse (https://dataverse.harvard.edu/)  
+**F4 – Water Storage:** GFZ GravIS RL06 (https://doi.org/10.5880/GFZ.GRAVIS_06_L3_TWS)  
 """)
