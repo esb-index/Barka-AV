@@ -1,4 +1,4 @@
-Streamlit app kódja (app.py)
+
 
 # app.py
 
