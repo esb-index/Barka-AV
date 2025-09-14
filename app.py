@@ -240,7 +240,7 @@ Ha szeretnéd, elkészítem a `fetch_real_data()` függvényt és a pontos URL-e
 
 """)
 
-) requirements.txt (másold ezt is a repo-ba)
+requirements.txt (másold ezt is a repo-ba)
 
 Feltölteni kötelező, hogy a Streamlit Cloud tudja telepíteni a csomagokat.
 
