@@ -95,14 +95,24 @@ def fetch_f1_data(local_fallback="data/F1_gistemp.csv"):
         if m in df.columns:
             df[m] = pd.to_numeric(df[m], errors="coerce")
     # compute annual mean if possible
+        # compute annual mean if possible
     if all(m in df.columns for m in months):
         df["annual"] = df[months].mean(axis=1)
     else:
-        # if monthly columns missing, try J-D or similar
-        for alt in ["J-D", "J_D", "J_D.1", "J_D.0", "Annual", "Yearly"]:
+        # if monthly columns missing, try alternative annual columns
+        alt_cols = ["J-D", "J_D", "J_D.1", "J_D.0", "Annual", "Yearly"]
+        found = False
+        for alt in alt_cols:
             if alt in df.columns:
                 df["annual"] = pd.to_numeric(df[alt], errors="coerce")
+                found = True
                 break
+        if not found:
+            # ultimate fallback: use last numeric column
+            num_cols = df.select_dtypes(include=[np.number]).columns
+            if len(num_cols) > 0:
+                df["annual"] = pd.to_numeric(df[num_cols[-1]], errors="coerce")
+
 
     df = df.dropna(subset=["annual"])
     # convert year to int if possible
